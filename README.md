@@ -29,7 +29,7 @@ See [Installation](docs/INSTALLATION.md) for full configuration details.
 | Doc                                  | Description                                                 |
 | ------------------------------------ | ----------------------------------------------------------- |
 | [Installation](docs/INSTALLATION.md) | Setup, env vars, client configuration (Claude Desktop, CLI) |
-| [Tools](docs/TOOLS.md)               | Complete reference for all 50 MCP tools by product          |
+| [Tools](docs/TOOLS.md)               | Complete reference for all 64 MCP tools by product          |
 | [Contributing](CONTRIBUTING.md)      | Development setup, testing, adding new tools                |
 
 ## Supported Products
@@ -37,9 +37,33 @@ See [Installation](docs/INSTALLATION.md) for full configuration details.
 | Product                 | Tools | Description                                                            |
 | ----------------------- | ----- | ---------------------------------------------------------------------- |
 | **Setup**               | 2     | Onboarding tools (always available, no credentials needed)             |
-| **Jamf Pro**            | 40    | Device management, groups, policies, profiles, apps, scripts, printers |
+| **Jamf Pro**            | 54    | Device management, groups, policies, profiles, apps, scripts, printers, MDM commands |
 | **Jamf Protect**        | 6     | Security alerts, enrolled computers, analytics (detection rules)       |
 | **Jamf Security Cloud** | 2     | Device risk status and overrides via RISK API                          |
+
+### Management Commands (new)
+
+Send MDM commands to managed Apple devices (macOS, iOS/iPadOS, tvOS):
+
+| Tool | Description |
+| ---- | ----------- |
+| `jamf_list_mdm_commands` | List queued/completed MDM commands with RSQL filtering |
+| `jamf_get_device_management_id` | Resolve a numeric Jamf ID to its MDM managementId UUID |
+| `jamf_send_mdm_command` | Generic: send any command type with custom payload |
+| `jamf_lock_device` | ⚠️ Remote lock (DEVICE_LOCK) |
+| `jamf_erase_device` | ⚠️ Remote wipe (ERASE_DEVICE) — irreversible |
+| `jamf_restart_device` | ⚠️ Remote restart (RESTART_DEVICE) |
+| `jamf_shut_down_device` | ⚠️ Remote shutdown (SHUT_DOWN_DEVICE) |
+| `jamf_clear_passcode` | ⚠️ Clear iOS/iPadOS passcode (CLEAR_PASSCODE) |
+| `jamf_set_recovery_lock` | ⚠️ Set/remove macOS Recovery Lock password |
+| `jamf_delete_user` | ⚠️ Delete user account (DELETE_USER) |
+| `jamf_log_out_user` | ⚠️ Log out current user (LOG_OUT_USER) |
+| `jamf_enable_lost_mode` | Enable Lost Mode on supervised iOS/iPadOS |
+| `jamf_disable_lost_mode` | Disable Lost Mode |
+| `jamf_enable_remote_desktop` | Enable Screen Sharing on macOS |
+| `jamf_disable_remote_desktop` | Disable Screen Sharing on macOS |
+
+> ⚠️ Destructive commands require `confirm=True`. The model will always verify device identity with you before setting this flag.
 
 ## Requirements
 
