@@ -94,9 +94,22 @@ async def jamf_get_computer(
     if error:
         return error
 
+    # Jamf Pro returns operatingSystem/hardware only when sections are
+    # requested (or via computers-inventory-detail). Without this, MCP
+    # callers always see operatingSystem: null.
+    default_sections = [
+        "GENERAL",
+        "OPERATING_SYSTEM",
+        "HARDWARE",
+        "USER_AND_LOCATION",
+    ]
+
     try:
         if computer_id:
-            result = await client.v1_get(f"computers-inventory/{computer_id}")
+            result = await client.v1_get(
+                f"computers-inventory/{computer_id}",
+                params={"section": default_sections},
+            )
             return format_response(result, f"Retrieved computer ID {computer_id}")
 
         filters = []
@@ -105,7 +118,11 @@ async def jamf_get_computer(
         if name:
             filters.append(f'general.name=="{name}*"')
 
-        params = {"page": page, "page-size": page_size}
+        params = {
+            "page": page,
+            "page-size": page_size,
+            "section": default_sections,
+        }
         if filters:
             params["filter"] = " and ".join(filters)
 
