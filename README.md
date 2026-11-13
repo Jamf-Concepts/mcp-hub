@@ -1,5 +1,3 @@
-![icon.png](assets/icon.png)
-
 # Jamf MCP Server
 
 > [!IMPORTANT]
