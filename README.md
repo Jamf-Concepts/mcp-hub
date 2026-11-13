@@ -2,6 +2,13 @@
 
 # Jamf MCP Server
 
+> [!IMPORTANT]
+> **mcp-hub is no longer actively maintained and is under consideration for archival.**
+>
+> We recommend [jamf-cli](https://github.com/Jamf-Concepts/jamf-cli), the preferred local tool for the functionality mcp-hub provides.
+>
+> If you rely on mcp-hub and archiving would affect you, please [open an issue](https://github.com/Jamf-Concepts/mcp-hub/issues) and let us know how you use it.
+
 An MCP server that enables LLMs to interact with Jamf Pro, Protect, and Security Cloud for Apple device management.
 
 ## Quick Start
