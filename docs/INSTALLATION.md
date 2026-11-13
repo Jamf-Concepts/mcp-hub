@@ -124,7 +124,7 @@ Required for Protect tools (`jamf_protect_*`):
 
 | Variable                 | Description                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------- |
-| `JAMF_PROTECT_URL`       | Jamf Protect API URL (e.g., `https://yourorg.protect.jamfcloud.com/graphql`) |
+| `JAMF_PROTECT_URL`       | Jamf Protect API URL (e.g., `https://yourorg.protect.jamfcloud.com`) |
 | `JAMF_PROTECT_CLIENT_ID` | Jamf Protect API client ID                                                   |
 | `JAMF_PROTECT_PASSWORD`  | Jamf Protect API client password                                             |
 
@@ -298,7 +298,7 @@ export JAMF_PRODUCTS="pro,protect"
    - Note the **Client ID** and **Password**
 4. Set the environment variables:
    ```
-   JAMF_PROTECT_URL=https://your-tenant.protect.jamfcloud.com/graphql
+   JAMF_PROTECT_URL=https://your-tenant.protect.jamfcloud.com
    JAMF_PROTECT_CLIENT_ID=<your-client-id>
    JAMF_PROTECT_PASSWORD=<your-password>
    ```
@@ -351,7 +351,7 @@ Config file: `~/Library/Application Support/Claude/claude_desktop_config.json`
         "JAMF_PRO_URL": "https://yourcompany.jamfcloud.com",
         "JAMF_PRO_CLIENT_ID": "your-pro-client-id",
         "JAMF_PRO_CLIENT_SECRET": "your-pro-client-secret",
-        "JAMF_PROTECT_URL": "https://yourorg.protect.jamfcloud.com/graphql",
+        "JAMF_PROTECT_URL": "https://yourorg.protect.jamfcloud.com",
         "JAMF_PROTECT_CLIENT_ID": "your-protect-client-id",
         "JAMF_PROTECT_PASSWORD": "your-protect-password",
         "JAMF_SECURITY_URL": "https://radar.wandera.com",
@@ -441,7 +441,7 @@ Config file: `%APPDATA%\Claude\claude_desktop_config.json`
         "JAMF_PRO_URL": "https://yourcompany.jamfcloud.com",
         "JAMF_PRO_CLIENT_ID": "your-pro-client-id",
         "JAMF_PRO_CLIENT_SECRET": "your-pro-client-secret",
-        "JAMF_PROTECT_URL": "https://yourorg.protect.jamfcloud.com/graphql",
+        "JAMF_PROTECT_URL": "https://yourorg.protect.jamfcloud.com",
         "JAMF_PROTECT_CLIENT_ID": "your-protect-client-id",
         "JAMF_PROTECT_PASSWORD": "your-protect-password",
         "JAMF_SECURITY_URL": "https://radar.wandera.com",
@@ -484,7 +484,7 @@ export JAMF_PRO_CLIENT_ID="your-client-id"
 export JAMF_PRO_CLIENT_SECRET="your-client-secret"
 
 # Optional: Jamf Protect
-export JAMF_PROTECT_URL="https://yourorg.protect.jamfcloud.com/graphql"
+export JAMF_PROTECT_URL="https://yourorg.protect.jamfcloud.com"
 export JAMF_PROTECT_CLIENT_ID="your-protect-client-id"
 export JAMF_PROTECT_PASSWORD="your-protect-password"
 
