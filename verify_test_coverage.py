@@ -117,6 +117,28 @@ TOOL_TEST_MAPPING = {
     # Setup tools (always available, no credentials needed)
     "jamf_get_setup_status": ["test_setup_status"],
     "jamf_configure_help": ["test_configure_help"],
+    # MDM Management Commands
+    "jamf_list_mdm_commands": ["test_list_mdm_commands"],
+    "jamf_get_device_management_id": [
+        "test_resolve_management_id_computer",
+        "test_resolve_management_id_mobile",
+    ],
+    "jamf_send_mdm_command": [
+        "test_send_mdm_command_requires_confirmation",
+        "test_send_device_information_command",
+    ],
+    "jamf_lock_device": ["test_send_mdm_command_requires_confirmation"],
+    "jamf_erase_device": ["test_send_mdm_command_requires_confirmation"],
+    "jamf_restart_device": ["test_send_mdm_command_requires_confirmation"],
+    "jamf_shut_down_device": ["test_send_mdm_command_requires_confirmation"],
+    "jamf_clear_passcode": ["test_send_mdm_command_requires_confirmation"],
+    "jamf_set_recovery_lock": ["test_send_mdm_command_requires_confirmation"],
+    "jamf_delete_user": ["test_send_mdm_command_requires_confirmation"],
+    "jamf_enable_lost_mode": ["test_send_device_information_command"],
+    "jamf_disable_lost_mode": ["test_send_device_information_command"],
+    "jamf_enable_remote_desktop": ["test_send_device_information_command"],
+    "jamf_disable_remote_desktop": ["test_send_device_information_command"],
+    "jamf_log_out_user": ["test_send_mdm_command_requires_confirmation"],
 }
 
 

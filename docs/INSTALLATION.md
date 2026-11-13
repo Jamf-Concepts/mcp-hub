@@ -268,6 +268,18 @@ export JAMF_PRODUCTS="pro,protect"
    | Read Printers                             | Printer lookup                             |
    | Create Printers                           | Printer creation                           |
    | Update Printers                           | Printer updates                            |
+   | View MDM command information in Jamf Pro API | List MDM command history (`jamf_list_mdm_commands`) |
+   | Send Computer Remote Command to Lock Computer | Remote lock Mac (`jamf_lock_device`) |
+   | Send Computer Remote Command to Erase Computer | Remote wipe Mac (`jamf_erase_device`) |
+   | Send Computer Remote Command to Restart  | Restart Mac (`jamf_restart_device`)        |
+   | Send Computer Remote Command to Shut Down | Shut down Mac (`jamf_shut_down_device`)   |
+   | Send Computer Remote Command to Enable Remote Desktop | Enable Screen Sharing (`jamf_enable_remote_desktop`) |
+   | Send Computer Remote Command to Disable Remote Desktop | Disable Screen Sharing (`jamf_disable_remote_desktop`) |
+   | Send Computer Remote Command to Remove User | Delete user on Mac (`jamf_delete_user`) |
+   | Send Mobile Device Remote Command to Lock Device | Remote lock iOS/iPadOS (`jamf_lock_device`) |
+   | Send Mobile Device Remote Command to Erase Device | Remote wipe iOS/iPadOS (`jamf_erase_device`) |
+   | Send Mobile Device Remote Command to Clear Passcode | Clear iOS passcode (`jamf_clear_passcode`) |
+   | Send Mobile Device Remote Command to Enable/Disable Lost Mode | Lost mode (`jamf_enable_lost_mode`, `jamf_disable_lost_mode`) |
 
    > **Tip:** The Jamf Pro interface does not allow bulk permissions import. To add permissions through the interface quicker, type in the record/item you're looking for (without the Read/Create/Update) and it will filter the available options by that item to select. For example, instead of typing in "Read User Extension Attributes" just type in "User Extension" and both Read and Update will appear for quicker adding to the list.
 

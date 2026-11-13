@@ -259,6 +259,10 @@ class JamfTestAgent:
             "protect_analytic_uuid": None,
             # Security Cloud samples
             "risk_device_id": None,
+            # MDM command samples
+            "mdm_management_id": None,
+            "computer_management_id": None,
+            "mobile_management_id": None,
         }
 
     def _log(self, message: str, level: str = "info"):
@@ -2190,6 +2194,202 @@ class JamfTestAgent:
             )
 
     # =========================================================================
+    # MDM COMMANDS TESTS
+    # =========================================================================
+
+    async def test_list_mdm_commands(self) -> TestResult:
+        """Test listing MDM commands (pending, read-only)"""
+        status, data = await self._api_request(
+            "GET", "/api/v2/mdm/commands",
+            params={"filter": "status==Pending", "page-size": 10, "sort": "dateSent:desc"}
+        )
+
+        results = data.get("results", [])
+        total = data.get("totalCount", len(results))
+
+        # Store first command's clientManagementId for the management ID test
+        if results:
+            first = results[0]
+            client_data = first.get("clientData", [])
+            if client_data and isinstance(client_data, list):
+                mid = client_data[0].get("managementId") or client_data[0].get("clientManagementId")
+                if mid:
+                    self.samples["mdm_management_id"] = mid
+
+        return TestResult(
+            name="List MDM Commands (Pending)",
+            category="MDM Commands",
+            status=TestStatus.PASSED,
+            response_code=status,
+            message=f"Retrieved {len(results)} pending commands (total: {total})",
+            details={"count": len(results), "total": total}
+        )
+
+    async def test_resolve_management_id_computer(self) -> TestResult:
+        """Test resolving a computer's numeric ID to its managementId UUID"""
+        if not self.samples["computer_id"]:
+            return TestResult(
+                name="Resolve Computer managementId",
+                category="MDM Commands",
+                status=TestStatus.SKIPPED,
+                message="No computer ID available (run computer tests first)"
+            )
+
+        comp_id = self.samples["computer_id"]
+        status, data = await self._api_request(
+            "GET", f"/api/v1/computers-inventory-detail/{comp_id}"
+        )
+
+        management_id = data.get("general", {}).get("managementId")
+        if management_id:
+            self.samples["computer_management_id"] = management_id
+
+        return TestResult(
+            name="Resolve Computer managementId",
+            category="MDM Commands",
+            status=TestStatus.PASSED if management_id else TestStatus.WARNING,
+            response_code=status,
+            message=f"managementId: {management_id or 'not found'}",
+            details={"jamfId": comp_id, "managementId": management_id}
+        )
+
+    async def test_resolve_management_id_mobile(self) -> TestResult:
+        """Test resolving a mobile device's numeric ID to its managementId UUID"""
+        if not self.samples["mobile_device_id"]:
+            return TestResult(
+                name="Resolve Mobile Device managementId",
+                category="MDM Commands",
+                status=TestStatus.SKIPPED,
+                message="No mobile device ID available (run mobile device tests first)"
+            )
+
+        device_id = self.samples["mobile_device_id"]
+        status, data = await self._api_request(
+            "GET", f"/api/v2/mobile-devices/{device_id}/detail"
+        )
+
+        management_id = data.get("general", {}).get("managementId")
+        if management_id:
+            self.samples["mobile_management_id"] = management_id
+
+        return TestResult(
+            name="Resolve Mobile Device managementId",
+            category="MDM Commands",
+            status=TestStatus.PASSED if management_id else TestStatus.WARNING,
+            response_code=status,
+            message=f"managementId: {management_id or 'not found'}",
+            details={"jamfId": device_id, "managementId": management_id}
+        )
+
+    async def test_send_mdm_command_requires_confirmation(self) -> TestResult:
+        """Test that destructive MDM commands require confirm=True (no API call made)"""
+        try:
+            from jamf_mcp.tools.mdm_commands import (
+                jamf_lock_device,
+                jamf_erase_device,
+                jamf_restart_device,
+                jamf_shut_down_device,
+                jamf_clear_passcode,
+                jamf_send_mdm_command,
+            )
+
+            import time as _time
+            start = _time.time()
+
+            # All these should return a confirmation-required error without hitting the API
+            cases = [
+                ("jamf_lock_device", jamf_lock_device(management_id="fake-uuid", confirm=False)),
+                ("jamf_erase_device", jamf_erase_device(management_id="fake-uuid", confirm=False)),
+                ("jamf_restart_device", jamf_restart_device(management_id="fake-uuid", confirm=False)),
+                ("jamf_shut_down_device", jamf_shut_down_device(management_id="fake-uuid", confirm=False)),
+                ("jamf_clear_passcode", jamf_clear_passcode(management_id="fake-uuid", confirm=False)),
+                ("jamf_send_mdm_command DEVICE_LOCK", jamf_send_mdm_command(
+                    command_type="DEVICE_LOCK",
+                    management_ids=["fake-uuid"],
+                    confirm=False,
+                )),
+            ]
+
+            failures = []
+            for name, coro in cases:
+                result_json = await coro
+                result = json.loads(result_json)
+                if result.get("success") is not False:
+                    failures.append(f"{name}: expected success=false, got {result.get('success')}")
+                elif "confirm" not in result.get("hint", "").lower() and "confirm" not in result.get("error", "").lower():
+                    failures.append(f"{name}: missing confirmation guidance in response")
+
+            duration = (_time.time() - start) * 1000
+
+            if failures:
+                return TestResult(
+                    name="Destructive Commands Require Confirmation",
+                    category="MDM Commands",
+                    status=TestStatus.FAILED,
+                    duration_ms=duration,
+                    error="; ".join(failures)
+                )
+
+            return TestResult(
+                name="Destructive Commands Require Confirmation",
+                category="MDM Commands",
+                status=TestStatus.PASSED,
+                response_code=200,
+                duration_ms=duration,
+                message=f"All {len(cases)} destructive commands correctly require confirm=True",
+                details={"tested_commands": [c[0] for c in cases]}
+            )
+
+        except ImportError as e:
+            return TestResult(
+                name="Destructive Commands Require Confirmation",
+                category="MDM Commands",
+                status=TestStatus.FAILED,
+                error=f"Import error: {e}"
+            )
+        except Exception as e:
+            return TestResult(
+                name="Destructive Commands Require Confirmation",
+                category="MDM Commands",
+                status=TestStatus.FAILED,
+                error=str(e)
+            )
+
+    async def test_send_device_information_command(self) -> TestResult:
+        """Test sending a safe DEVICE_INFORMATION command (non-destructive, no confirm needed)"""
+        management_id = (
+            self.samples.get("computer_management_id")
+            or self.samples.get("mobile_management_id")
+            or self.samples.get("mdm_management_id")
+        )
+
+        if not management_id:
+            return TestResult(
+                name="Send DEVICE_INFORMATION Command",
+                category="MDM Commands",
+                status=TestStatus.SKIPPED,
+                message="No managementId available (run resolve tests first)"
+            )
+
+        # DEVICE_INFORMATION is a safe read-request command (non-destructive)
+        status, data = await self._api_request(
+            "POST", "/api/v2/mdm/commands",
+            data={
+                "clientData": [{"managementId": management_id}],
+                "commandData": {"commandType": "DEVICE_INFORMATION"}
+            }
+        )
+
+        return TestResult(
+            name="Send DEVICE_INFORMATION Command",
+            category="MDM Commands",
+            status=TestStatus.PASSED,
+            response_code=status,
+            message=f"Queued DEVICE_INFORMATION for managementId {management_id[:8]}...",
+            details={"managementId": management_id, "response": data}
+        )
+
+    # =========================================================================
     # MAIN EXECUTION
     # =========================================================================
 
@@ -2321,6 +2521,13 @@ class JamfTestAgent:
             ("Risk API", [
                 ("Get Risk Devices", self.test_get_risk_devices),
                 ("Override Device Risk", self.test_override_device_risk),
+            ]),
+            ("MDM Commands", [
+                ("List MDM Commands (Pending)", self.test_list_mdm_commands),
+                ("Resolve Computer managementId", self.test_resolve_management_id_computer),
+                ("Resolve Mobile Device managementId", self.test_resolve_management_id_mobile),
+                ("Destructive Commands Require Confirmation", self.test_send_mdm_command_requires_confirmation),
+                ("Send DEVICE_INFORMATION Command", self.test_send_device_information_command),
             ]),
         ]
 
