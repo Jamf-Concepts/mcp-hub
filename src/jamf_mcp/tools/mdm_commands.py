@@ -7,10 +7,13 @@ This module provides tools for sending MDM commands to managed Apple devices
 All commands use POST /api/v2/mdm/commands which requires the device's
 managementId (UUID). Numeric Jamf device IDs are resolved automatically.
 
-Destructive commands (lock, erase, restart, etc.) require confirm=True.
+Destructive commands (lock, erase, restart, etc.) require confirm=True and
+are limited to a single target device per call. Only command types on the
+read-only allowlist may run without confirmation or against multiple devices.
 Always verify device identity with the user before sending destructive commands.
 """
 
+import json
 import logging
 from typing import Any, Optional
 
@@ -19,6 +22,24 @@ from ._common import format_error, format_response, get_client_safe
 from ._registry import jamf_tool
 
 logger = logging.getLogger(__name__)
+
+# Read-only query command types from the Jamf Pro API spec (MdmCommandType
+# enum, POST /api/v2/mdm/commands). These are the ONLY commands that may run
+# without confirmation. Everything else — including types this server does not
+# know about yet — changes device state and fails closed: confirm=True and a
+# single target device are required.
+READ_ONLY_COMMAND_TYPES = frozenset({
+    "CERTIFICATE_LIST",
+    "DEVICE_INFORMATION",
+    "DEVICE_LOCATION",
+    "INSTALLED_APPLICATION_LIST",
+    "MANAGED_APPLICATION_LIST",
+    "MANAGED_MEDIA_LIST",
+    "PROFILE_LIST",
+    "PROVISIONING_PROFILE_LIST",
+    "SECURITY_INFO",
+    "VERIFY_RECOVERY_LOCK",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +58,6 @@ def _require_confirmation(confirm: bool, action: str) -> Optional[str]:
         JSON error string if confirmation is missing, None if confirmed
     """
     if not confirm:
-        import json
         return json.dumps({
             "success": False,
             "error": f"Confirmation required for destructive action: {action}",
@@ -45,6 +65,32 @@ def _require_confirmation(confirm: bool, action: str) -> Optional[str]:
                 "Re-call this tool with confirm=True ONLY after you have verified "
                 "the exact device name and serial number with the user and they have "
                 "explicitly authorized this action."
+            ),
+        }, indent=2)
+    return None
+
+
+def _validate_single_target(**targets: Any) -> str | None:
+    """Validate that exactly one target identifier was provided.
+
+    Single-device tools accept alternative identifiers (numeric computer or
+    mobile device IDs, or a managementId UUID). Passing more than one would
+    silently send the command to every resolved device while reporting only
+    the first, so reject ambiguous calls instead.
+
+    Args:
+        **targets: Mapping of parameter name to supplied value (or None)
+
+    Returns:
+        JSON error string unless exactly one target is non-None, else None
+    """
+    provided = [name for name, value in targets.items() if value is not None]
+    if len(provided) != 1:
+        return json.dumps({
+            "success": False,
+            "error": (
+                f"Provide exactly one of: {', '.join(targets)} "
+                f"(got: {', '.join(provided) if provided else 'none'})"
             ),
         }, indent=2)
     return None
@@ -118,7 +164,17 @@ def _build_command_payload(
 
     Returns:
         Request body dict ready for v2_post
+
+    Raises:
+        ValueError: If command_data contains commandType. Allowing it here
+            would let command_data override the (confirmation-guarded)
+            command_type after the guard has already run.
     """
+    if "commandType" in command_data:
+        raise ValueError(
+            "command_data must not contain 'commandType'; "
+            "pass the command via the command_type parameter"
+        )
     client_data = [{"managementId": mid} for mid in management_ids]
     command_data_dict: dict[str, Any] = {"commandType": command_type}
     command_data_dict.update({k: v for k, v in command_data.items() if v is not None})
@@ -228,13 +284,13 @@ async def jamf_get_device_management_id(
         JSON with the device's managementId UUID and key identifying details
         (name, serialNumber, model).
     """
+    err = _validate_single_target(computer_id=computer_id, mobile_device_id=mobile_device_id)
+    if err:
+        return err
+
     client, error = get_client_safe()
     if error:
         return error
-
-    if not computer_id and not mobile_device_id:
-        import json
-        return json.dumps({"success": False, "error": "Provide computer_id or mobile_device_id"}, indent=2)
 
     try:
         if computer_id:
@@ -287,10 +343,12 @@ async def jamf_send_mdm_command(
     Devices can be identified by managementId UUID (preferred), or by numeric
     Jamf computer/mobile device IDs which are resolved automatically.
 
-    ⚠️ Many command types are DESTRUCTIVE (DEVICE_LOCK, ERASE_DEVICE,
-    RESTART_DEVICE, SHUT_DOWN_DEVICE, CLEAR_PASSCODE, SET_RECOVERY_LOCK,
-    DELETE_USER). Confirm device identity with the user before setting
-    confirm=True.
+    ⚠️ Only read-only query commands (DEVICE_INFORMATION, SECURITY_INFO,
+    DEVICE_LOCATION, *_LIST, VERIFY_RECOVERY_LOCK) run without confirmation.
+    EVERY other command type — including ones this server does not know about
+    — is treated as destructive: confirm=True is required and exactly ONE
+    target device is allowed per call. Confirm device identity with the user
+    before setting confirm=True.
 
     Args:
         command_type: MDM command type. Supported values include:
@@ -306,34 +364,55 @@ async def jamf_send_mdm_command(
         mobile_device_ids: Numeric Jamf Pro mobile device IDs (resolved).
         command_data: Additional command-specific fields as a dict. For example,
             DEVICE_LOCK accepts {"message": "...", "phoneNumber": "...", "pin": "123456"}.
-        confirm: Must be True for destructive commands. Re-call with confirm=True
-            ONLY after the user has explicitly authorized the action.
+            Must NOT contain "commandType" — use the command_type parameter.
+        confirm: Must be True for all non-read-only commands. Re-call with
+            confirm=True ONLY after the user has explicitly authorized the action.
 
     Returns:
         JSON with command queuing result or confirmation-required error.
     """
-    DESTRUCTIVE_COMMANDS = {
-        "DEVICE_LOCK", "ERASE_DEVICE", "RESTART_DEVICE", "SHUT_DOWN_DEVICE",
-        "CLEAR_PASSCODE", "CLEAR_RESTRICTIONS_PASSWORD", "SET_RECOVERY_LOCK",
-        "DELETE_USER", "LOG_OUT_USER", "UNLOCK_USER_ACCOUNT",
-        "SET_AUTO_ADMIN_PASSWORD",
-    }
+    # Reject attempts to override the guarded command type via command_data —
+    # otherwise command_data={"commandType": "ERASE_DEVICE"} would bypass the
+    # confirmation check below (which only inspects command_type).
+    if command_data and "commandType" in command_data:
+        return json.dumps({
+            "success": False,
+            "error": (
+                "command_data must not contain 'commandType'; "
+                "pass the command via the command_type parameter"
+            ),
+        }, indent=2)
 
-    if command_type in DESTRUCTIVE_COMMANDS:
-        err = _require_confirmation(confirm, f"{command_type} on {len(management_ids or []) + len(computer_ids or []) + len(mobile_device_ids or [])} device(s)")
-        if err:
-            return err
-
-    client, error = get_client_safe()
-    if error:
-        return error
-
-    if not management_ids and not computer_ids and not mobile_device_ids:
-        import json
+    target_count = (
+        len(management_ids or [])
+        + len(computer_ids or [])
+        + len(mobile_device_ids or [])
+    )
+    if target_count == 0:
         return json.dumps({
             "success": False,
             "error": "Provide at least one of: management_ids, computer_ids, mobile_device_ids",
         }, indent=2)
+
+    if command_type not in READ_ONLY_COMMAND_TYPES:
+        # Fail closed: unknown or state-changing commands require confirmation
+        # and may only target a single device per call.
+        err = _require_confirmation(confirm, f"{command_type} on {target_count} device(s)")
+        if err:
+            return err
+        if target_count > 1:
+            return json.dumps({
+                "success": False,
+                "error": (
+                    f"{command_type} is destructive and is limited to one target "
+                    f"device per call (got {target_count}). Re-call with a single "
+                    "device so the blast radius is explicit."
+                ),
+            }, indent=2)
+
+    client, error = get_client_safe()
+    if error:
+        return error
 
     try:
         resolved, resolution_errors = await _resolve_management_ids(
@@ -341,7 +420,6 @@ async def jamf_send_mdm_command(
         )
 
         if not resolved:
-            import json
             return json.dumps({
                 "success": False,
                 "error": "No devices could be resolved",
@@ -413,6 +491,12 @@ async def jamf_lock_device(
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(
+        computer_id=computer_id, mobile_device_id=mobile_device_id, management_id=management_id
+    )
+    if err:
+        return err
+
     err = _require_confirmation(confirm, "DEVICE_LOCK")
     if err:
         return err
@@ -429,7 +513,6 @@ async def jamf_lock_device(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(
@@ -484,6 +567,12 @@ async def jamf_erase_device(
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(
+        computer_id=computer_id, mobile_device_id=mobile_device_id, management_id=management_id
+    )
+    if err:
+        return err
+
     err = _require_confirmation(confirm, "ERASE_DEVICE (ALL data will be permanently destroyed)")
     if err:
         return err
@@ -500,7 +589,6 @@ async def jamf_erase_device(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(
@@ -552,6 +640,12 @@ async def jamf_restart_device(
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(
+        computer_id=computer_id, mobile_device_id=mobile_device_id, management_id=management_id
+    )
+    if err:
+        return err
+
     err = _require_confirmation(confirm, "RESTART_DEVICE")
     if err:
         return err
@@ -568,7 +662,6 @@ async def jamf_restart_device(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(
@@ -614,6 +707,12 @@ async def jamf_shut_down_device(
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(
+        computer_id=computer_id, mobile_device_id=mobile_device_id, management_id=management_id
+    )
+    if err:
+        return err
+
     err = _require_confirmation(confirm, "SHUT_DOWN_DEVICE")
     if err:
         return err
@@ -630,7 +729,6 @@ async def jamf_shut_down_device(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(client, "SHUT_DOWN_DEVICE", resolved)
@@ -647,6 +745,7 @@ async def jamf_shut_down_device(
 
 @jamf_tool
 async def jamf_clear_passcode(
+    unlock_token: str,
     mobile_device_id: Optional[int] = None,
     management_id: Optional[str] = None,
     confirm: bool = False,
@@ -668,6 +767,9 @@ async def jamf_clear_passcode(
     Provide exactly one of: mobile_device_id or management_id.
 
     Args:
+        unlock_token: The device's escrowed unlock token (base64 string).
+            REQUIRED by the MDM ClearPasscode command — without it the
+            device cannot clear its passcode.
         mobile_device_id: Numeric Jamf Pro mobile device ID.
         management_id: Device managementId UUID.
         confirm: Must be True to execute.
@@ -675,6 +777,10 @@ async def jamf_clear_passcode(
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(mobile_device_id=mobile_device_id, management_id=management_id)
+    if err:
+        return err
+
     err = _require_confirmation(confirm, "CLEAR_PASSCODE")
     if err:
         return err
@@ -691,10 +797,9 @@ async def jamf_clear_passcode(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
-        result = await _send_command(client, "CLEAR_PASSCODE", resolved)
+        result = await _send_command(client, "CLEAR_PASSCODE", resolved, unlockToken=unlock_token)
         return format_response(
             {"commandType": "CLEAR_PASSCODE", "managementId": resolved[0], "apiResponse": result},
             f"Queued CLEAR_PASSCODE for device {resolved[0]}",
@@ -739,6 +844,10 @@ async def jamf_set_recovery_lock(
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(computer_id=computer_id, management_id=management_id)
+    if err:
+        return err
+
     err = _require_confirmation(confirm, "SET_RECOVERY_LOCK")
     if err:
         return err
@@ -755,7 +864,6 @@ async def jamf_set_recovery_lock(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(
@@ -811,6 +919,10 @@ async def jamf_delete_user(
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(computer_id=computer_id, management_id=management_id)
+    if err:
+        return err
+
     err = _require_confirmation(confirm, f"DELETE_USER '{user_name}'")
     if err:
         return err
@@ -827,7 +939,6 @@ async def jamf_delete_user(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(
@@ -861,6 +972,7 @@ async def jamf_enable_lost_mode(
     play_sound: Optional[bool] = None,
     mobile_device_id: Optional[int] = None,
     management_id: Optional[str] = None,
+    confirm: bool = False,
 ) -> str:
     """Enable Lost Mode on a supervised iOS/iPadOS device.
 
@@ -870,6 +982,11 @@ async def jamf_enable_lost_mode(
 
     Requires: Supervised iOS/iPadOS device. At least one of message or
     phone_number must be provided.
+
+    ⚠️ DESTRUCTIVE. Lost Mode locks the device and enables location tracking.
+    Before calling:
+    1. Confirm the exact device name and serial number with the user.
+    2. Set confirm=True only after the user has authorized enabling Lost Mode.
 
     Provide exactly one of: mobile_device_id or management_id.
 
@@ -885,16 +1002,24 @@ async def jamf_enable_lost_mode(
             (default False).
         mobile_device_id: Numeric Jamf Pro mobile device ID.
         management_id: Device managementId UUID.
+        confirm: Must be True to execute.
 
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(mobile_device_id=mobile_device_id, management_id=management_id)
+    if err:
+        return err
+
     if not message and not phone_number:
-        import json
         return json.dumps({
             "success": False,
             "error": "At least one of 'message' or 'phone_number' is required for ENABLE_LOST_MODE",
         }, indent=2)
+
+    err = _require_confirmation(confirm, "ENABLE_LOST_MODE")
+    if err:
+        return err
 
     client, error = get_client_safe()
     if error:
@@ -908,7 +1033,6 @@ async def jamf_enable_lost_mode(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(
@@ -951,6 +1075,10 @@ async def jamf_disable_lost_mode(
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(mobile_device_id=mobile_device_id, management_id=management_id)
+    if err:
+        return err
+
     client, error = get_client_safe()
     if error:
         return error
@@ -963,7 +1091,6 @@ async def jamf_disable_lost_mode(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(client, "DISABLE_LOST_MODE", resolved)
@@ -987,6 +1114,7 @@ async def jamf_disable_lost_mode(
 async def jamf_enable_remote_desktop(
     computer_id: Optional[int] = None,
     management_id: Optional[str] = None,
+    confirm: bool = False,
 ) -> str:
     """Enable Remote Desktop (Screen Sharing) on a managed Mac.
 
@@ -996,15 +1124,28 @@ async def jamf_enable_remote_desktop(
 
     Requires: macOS 10.14.4 or later.
 
+    ⚠️ DESTRUCTIVE. This enables remote access to the Mac. Before calling:
+    1. Confirm the exact device name and serial number with the user.
+    2. Set confirm=True only after the user has authorized remote access.
+
     Provide exactly one of: computer_id or management_id.
 
     Args:
         computer_id: Numeric Jamf Pro computer ID.
         management_id: Device managementId UUID.
+        confirm: Must be True to execute.
 
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(computer_id=computer_id, management_id=management_id)
+    if err:
+        return err
+
+    err = _require_confirmation(confirm, "ENABLE_REMOTE_DESKTOP")
+    if err:
+        return err
+
     client, error = get_client_safe()
     if error:
         return error
@@ -1017,7 +1158,6 @@ async def jamf_enable_remote_desktop(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(client, "ENABLE_REMOTE_DESKTOP", resolved)
@@ -1053,6 +1193,10 @@ async def jamf_disable_remote_desktop(
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(computer_id=computer_id, management_id=management_id)
+    if err:
+        return err
+
     client, error = get_client_safe()
     if error:
         return error
@@ -1065,7 +1209,6 @@ async def jamf_disable_remote_desktop(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(client, "DISABLE_REMOTE_DESKTOP", resolved)
@@ -1108,6 +1251,12 @@ async def jamf_log_out_user(
     Returns:
         JSON with command queue confirmation or error.
     """
+    err = _validate_single_target(
+        computer_id=computer_id, mobile_device_id=mobile_device_id, management_id=management_id
+    )
+    if err:
+        return err
+
     err = _require_confirmation(confirm, "LOG_OUT_USER")
     if err:
         return err
@@ -1124,7 +1273,6 @@ async def jamf_log_out_user(
             [management_id] if management_id else None,
         )
         if not resolved:
-            import json
             return json.dumps({"success": False, "error": "Device not resolved", "details": resolution_errors}, indent=2)
 
         result = await _send_command(client, "LOG_OUT_USER", resolved)

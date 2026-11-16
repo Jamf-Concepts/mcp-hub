@@ -2290,6 +2290,8 @@ class JamfTestAgent:
                 jamf_restart_device,
                 jamf_shut_down_device,
                 jamf_clear_passcode,
+                jamf_enable_lost_mode,
+                jamf_enable_remote_desktop,
                 jamf_send_mdm_command,
             )
 
@@ -2302,7 +2304,15 @@ class JamfTestAgent:
                 ("jamf_erase_device", jamf_erase_device(management_id="fake-uuid", confirm=False)),
                 ("jamf_restart_device", jamf_restart_device(management_id="fake-uuid", confirm=False)),
                 ("jamf_shut_down_device", jamf_shut_down_device(management_id="fake-uuid", confirm=False)),
-                ("jamf_clear_passcode", jamf_clear_passcode(management_id="fake-uuid", confirm=False)),
+                ("jamf_clear_passcode", jamf_clear_passcode(
+                    management_id="fake-uuid", unlock_token="fake-token", confirm=False,
+                )),
+                ("jamf_enable_lost_mode", jamf_enable_lost_mode(
+                    management_id="fake-uuid", message="Test", confirm=False,
+                )),
+                ("jamf_enable_remote_desktop", jamf_enable_remote_desktop(
+                    management_id="fake-uuid", confirm=False,
+                )),
                 ("jamf_send_mdm_command DEVICE_LOCK", jamf_send_mdm_command(
                     command_type="DEVICE_LOCK",
                     management_ids=["fake-uuid"],

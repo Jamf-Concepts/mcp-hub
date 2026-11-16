@@ -134,9 +134,9 @@ TOOL_TEST_MAPPING = {
     "jamf_clear_passcode": ["test_send_mdm_command_requires_confirmation"],
     "jamf_set_recovery_lock": ["test_send_mdm_command_requires_confirmation"],
     "jamf_delete_user": ["test_send_mdm_command_requires_confirmation"],
-    "jamf_enable_lost_mode": ["test_send_device_information_command"],
+    "jamf_enable_lost_mode": ["test_send_mdm_command_requires_confirmation"],
     "jamf_disable_lost_mode": ["test_send_device_information_command"],
-    "jamf_enable_remote_desktop": ["test_send_device_information_command"],
+    "jamf_enable_remote_desktop": ["test_send_mdm_command_requires_confirmation"],
     "jamf_disable_remote_desktop": ["test_send_device_information_command"],
     "jamf_log_out_user": ["test_send_mdm_command_requires_confirmation"],
 }
