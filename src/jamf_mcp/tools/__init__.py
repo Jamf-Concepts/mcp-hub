@@ -50,6 +50,7 @@ from . import computers
 from . import extension_attributes
 from . import groups
 from . import locations
+from . import mdm_commands
 from . import mobile_devices
 from . import policies
 from . import prestages

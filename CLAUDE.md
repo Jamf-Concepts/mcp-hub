@@ -36,7 +36,7 @@ This is an MCP (Model Context Protocol) server that enables LLMs to interact wit
 
 | Product | Description | Tools Available |
 |---------|-------------|-----------------|
-| **Jamf Pro** | Core device management for macOS, iOS/iPadOS, and tvOS | 40 tools |
+| **Jamf Pro** | Core device management for macOS, iOS/iPadOS, and tvOS | 54 tools |
 | **Jamf Protect** | Endpoint security for threat detection and response | 6 tools |
 | **Jamf Security Cloud** | Device risk management via RISK API | 2 tools |
 | **Setup** | Zero-credential onboarding (always available) | 2 tools |
@@ -201,6 +201,18 @@ When creating multiple dependent resources, follow this order:
 4. Smart/Static Group
 5. Deployment (Policy/Profile/App)
 
+### Destructive Management Commands (MDM)
+
+Tools like `jamf_lock_device`, `jamf_erase_device`, `jamf_restart_device`, `jamf_shut_down_device`, `jamf_clear_passcode`, `jamf_set_recovery_lock`, `jamf_delete_user`, and `jamf_log_out_user` are **destructive and irreversible**.
+
+Before calling any of these:
+1. **Identify the device explicitly** — call `jamf_get_computer` or `jamf_get_mobile_device` and show the user the name, serial number, and model to confirm you have the right device.
+2. **State what will happen** — explain the impact (e.g., "This will erase ALL data on 'Jane's MacBook Pro' (SN: C02XG2JHQ6LR) permanently.").
+3. **Require explicit user authorization** — the user must say yes before you set `confirm=True`.
+4. **Prefer less destructive options first** — offer lock/lost-mode before erase; offer restart before shutdown.
+5. **Never batch destructive commands** without individual confirmation per device.
+6. **`jamf_erase_device` is irreversible** — treat it like a last resort. Always recommend the user backs up data first if possible.
+
 ## Deployment Scope Analysis
 
 **Important:** List endpoints don't include scope data. To find what's deployed to a group:
@@ -289,6 +301,7 @@ When creating multiple dependent resources, follow this order:
 | Buildings/Departments | `tools/locations.py` | `client.py` |
 | Apps (Mac/Mobile/eBooks/etc) | `tools/apps.py` | `client.py` |
 | API Roles | `tools/api_roles.py` | `client.py` |
+| MDM Commands | `tools/mdm_commands.py` | `client.py` |
 
 **Jamf Protect Tools:**
 
